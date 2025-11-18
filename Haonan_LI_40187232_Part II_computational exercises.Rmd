@@ -1,0 +1,185 @@
+---
+title: "Computational exercises"
+author: "Haonan LI"
+date: "2025-03-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+Sys.setenv(LANG = "en")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r cars}
+# Reading CSV files
+data <- read.csv("C:/R code/stat385a2-classify-data.csv")
+
+# Set first 250 lines are training, the next 250 lines are testing.
+train <- data[1:250, ]
+test  <- data[251:500, ]
+
+# Inspection of structures
+str(train)
+str(test)
+
+# (a) 
+# Scatterplot to visualize training data
+plot(train$x_1, train$x_2,
+     col = ifelse(train$t == 1, "red", "blue"),
+     pch = 19,
+     cex = 0.7,
+     xlab = "x1", ylab = "x2",
+     main = "Training data: red=Class1, blue=Class0")
+
+# (b)
+# Estimating a priori probabilities P(C1) and P(C2)
+numC1 <- sum(train$t == 1)
+numC2 <- sum(train$t == 0)
+N <- nrow(train)
+pi1 <- numC1/N
+pi0 <- numC2/N
+
+# Estimate the parameters class 1 and class 0 separately from the training set
+trainC1 <- subset(train, t == 1)
+trainC0 <- subset(train, t == 0)
+mu1 <- colMeans(trainC1[, c("x_1", "x_2")])
+mu0 <- colMeans(trainC0[, c("x_1", "x_2")])
+
+# Calculate the combined covariance matrix
+Sigma1 <- var(trainC1[, c("x_1", "x_2")])  
+Sigma0 <- var(trainC0[, c("x_1", "x_2")])  
+n1 <- nrow(trainC1)
+n0 <- nrow(trainC0)
+Sigma_pooled <- ((n1 - 1)*Sigma1 + (n0 - 1)*Sigma0) / (n1 + n0 - 2) 
+
+# Define the normal distribution density function
+library(mvtnorm)
+f1 <- function(x) dmvnorm(x, mean = mu1, sigma = Sigma_pooled)
+f0 <- function(x) dmvnorm(x, mean = mu0, sigma = Sigma_pooled)
+
+# Compute the posterior probability p(C1|x) on the test set
+num_test <- nrow(test)
+posterior_C1 <- numeric(num_test)
+for(i in 1:num_test){
+  xvec <- as.numeric(test[i, c("x_1", "x_2")])
+  posterior_C1[i] <- (f1(xvec) * pi1) / (f1(xvec) * pi1 + f0(xvec) * pi0)
+}
+
+# Categorical Decision Making and Error Rate Calculation
+predicted_test <- ifelse(posterior_C1 > 0.5, 1, 0)
+test_error <- mean(predicted_test != test$t)
+cat("Test error rate:", test_error, "\n")
+
+# Training set error rate calculation
+n_train <- nrow(train)
+posterior_C1_train <- numeric(n_train)
+for(i in 1:n_train){
+  x_vec <- as.numeric(train[i, c("x_1", "x_2")])
+  posterior_C1_train[i] <- (f1(x_vec) * pi1) / (f1(x_vec) * pi1 + f0(x_vec) * pi0)
+}
+predicted_train <- ifelse(posterior_C1_train > 0.5, 1, 0)
+train_error <- mean(predicted_train != train$t)
+cat("Training error rate:", train_error, "\n")
+
+# (c)
+# True Positives
+TP <- sum(predicted_test == 1 & test$t == 1)
+
+# True Negatives
+TN <- sum(predicted_test == 0 & test$t == 0)
+
+# False Positives
+FP <- sum(predicted_test == 1 & test$t == 0)
+
+# False Negatives
+FN <- sum(predicted_test == 0 & test$t == 1)
+
+# Calculation of indicators
+accuracy <- (TP + TN) / length(test$t)
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+# False Positive Rate
+FPR <- FP / (FP + TN)
+# False Discovery Rate
+FDR <- FP / (TP + FP)                 
+F_score <- 2 * precision * recall / (precision + recall)
+
+# output result
+cat("Accuracy:", accuracy, "\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("False Positive Rate:", FPR, "\n")
+cat("False Discovery Rate:", FDR, "\n")
+cat("F-score:", F_score, "\n")
+
+# Plotting the distribution of test data
+plot(test$x_1, test$x_2, 
+     col = ifelse(test$t == 1, "green", "gray"),
+     pch = 19, cex = 0.7,
+     xlab = "x1", ylab = "x2",
+     main = "Test Data: red=Class1, blue=Class0 (Perfect Separation)")
+
+
+# (d) with package (pROC)
+# Calculate the likelihood ratio LR = f1(x)/f0(x)
+num_test <- nrow(test)
+LR <- numeric(num_test)
+for(i in 1:num_test){
+  x_vec <- as.numeric(test[i, c("x_1", "x_2")])
+  LR[i] <- f1(x_vec) / f0(x_vec)
+}
+
+# plot the ROC
+library(pROC)
+roc_obj <- roc(response = test$t, predictor = LR)
+plot(roc_obj, main="ROC Curve based on LR threshold")
+
+# Output AUC
+auc_value <- auc(roc_obj)
+cat("AUC:", auc_value, "\n")
+
+# (d) Manual ROC and AUC calculation
+# Combine LR with true labels
+results <- data.frame(LR = LR, t = test$t)
+results <- results[order(-results$LR), ]
+
+# Initialize variables
+TPR <- numeric(nrow(results) + 1)
+FPR <- numeric(nrow(results) + 1)
+TPR[1] <- 0
+FPR[1] <- 0
+
+# Calculate TPR and FPR for each threshold
+TP <- 0
+FP <- 0
+P <- sum(results$t == 1)
+N <- sum(results$t == 0)
+
+for (i in 1:nrow(results)) {
+  if (results$t[i] == 1) {
+    TP <- TP + 1
+  } else {
+    FP <- FP + 1
+  }
+  TPR[i + 1] <- TP / P
+  FPR[i + 1] <- FP / N
+}
+
+# Plot ROC curve
+plot(FPR, TPR, type = "l", col = "blue", lwd = 2, 
+     xlab = "False Positive Rate", ylab = "True Positive Rate", 
+     main = "ROC Curve")
+abline(a = 0, b = 1, lty = 2, col = "gray")
+
+# Calculate AUC using the trapezoidal rule
+AUC <- sum(diff(FPR) * (head(TPR, -1) + tail(TPR, -1)) / 2)
+cat("AUC:", AUC, "\n")
+
+# Check if all positive samples have higher LR than negative samples
+positive_LR <- LR[test$t == 1]
+negative_LR <- LR[test$t == 0]
+
+# Check if all positive_LR are greater than all negative_LR
+all(positive_LR > max(negative_LR))
+```

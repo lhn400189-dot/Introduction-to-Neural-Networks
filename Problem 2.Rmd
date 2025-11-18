@@ -1,0 +1,83 @@
+---
+title: "Problem 2"
+author: "Haonan LI"
+date: "2025-02-06"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r cars}
+# Problem 2
+# (a)
+N <- 9
+
+# Construct the matrix C using nested loops
+C <- matrix(0, nrow = N, ncol = N)
+for (i in 1:N) {
+  for (j in 1:N) {
+    C[i, j] <- min(i, j) / N
+  }
+}
+
+# Compute eigenvalues and eigenvectors
+eig <- eigen(C)
+lambda <- eig$values  
+V <- eig$vectors      
+
+# Display eigenvalues and eigenvectors 
+cat("Eigenvalues (lambda_1 to lambda_9):\n")
+print(round(lambda, 6))  
+
+cat("\nFirst two eigenvectors (v_1 and v_2):\n")
+print(round(V[, 1:2], 6))  
+
+#(b)
+# Construct the diagonal matrix Lambda
+Lambda <- diag(lambda)  
+
+# Reconstruct matrix C using V * Lambda * V^T
+C_reconstructed <- V %*% Lambda %*% t(V)
+
+# Verify if the reconstructed matrix is close to the original C
+is_close_b <- all.equal(C, C_reconstructed)
+
+# Output the results
+cat("\nReconstructed Matrix C:\n")
+print(round(C_reconstructed, 6))  
+
+cat("\nOriginal Matrix C:\n")
+print(round(C, 6)) 
+
+cat("\nDoes C = V * Lambda * V^T (within tolerance)?\n")
+print(is_close_b)
+
+# (c)
+# Compute the square root of the diagonal matrix Lambda
+Lambda_sqrt <- diag(sqrt(lambda))  
+
+# Compute A = V * Lambda^(1/2)
+A <- V %*% Lambda_sqrt
+
+# Compute AA^T
+AA_T <- A %*% t(A)
+
+# Verify if AA^T equals C
+is_close_c <- all.equal(C, AA_T)
+
+# Output results
+cat("\nMatrix A (first few rows for brevity):\n")
+print(round(A[1:5, 1:5], 6))  
+
+cat("\nMatrix AA^T:\n")
+print(round(AA_T, 6))  
+
+cat("\nOriginal Matrix C:\n")
+print(round(C, 6))  
+
+cat("\nDoes AA^T equal C (within tolerance)?\n")
+print(is_close_c)
+
+
+```

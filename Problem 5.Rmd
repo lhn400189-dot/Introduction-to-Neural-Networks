@@ -1,0 +1,136 @@
+---
+title: "Problem 5"
+author: "Haonan LI"
+date: "2025-02-04"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+# Problem 5
+# (a)
+
+train_file <- "C:/R code/stat385a1_train_data.csv"
+test_file <- "C:/R code/stat385a1_test_data.csv"
+
+# Load training data
+train_data <- read.csv(train_file)
+test_data <- read.csv(test_file)
+x_train <- as.numeric(train_data$X)
+y_train <- as.numeric(train_data$Y)
+x_test <- as.numeric(test_data$X_test)
+y_test <- as.numeric(test_data$Y_test)
+
+# Building a Design Matrix
+design_matrix <- function(x, degree) {
+  n <- length(x) 
+  Phi <- matrix(1, nrow = n, ncol = degree)
+  if (degree > 1) { 
+    for (i in 2:degree) {
+      Phi[, i] <- x^(i - 1)
+    }
+  }
+  return(Phi)
+}
+
+# Compute the weight vector for the maximum likelihood estimate w
+mle_weights <- function(Phi, y, lambda = 1e-3) {
+  Phi <- as.matrix(Phi) 
+  y <- as.numeric(y)    
+  n <- ncol(Phi)
+  w <- solve(t(Phi) %*% Phi + lambda * diag(n)) %*% t(Phi) %*% y
+  return(w)
+}
+
+# Choose the order of the polynomial n
+n <- 3
+Phi_train <- design_matrix(x_train, n)
+
+# Calculate the maximum likelihood estimated weights w
+w <- mle_weights(Phi_train, y_train)
+
+# Calculate the training set prediction based on w
+y_pred <- Phi_train %*% w
+
+# output result
+cat("Weight vector w:\n")
+print(w)
+
+cat("\nPredicted values y_pred:\n")
+print(y_pred)
+  
+# (b)
+# Setting the polynomial order range
+degree_range <- 1:10
+
+# Plotting the fitted curve
+par(mfrow = c(2, 5))
+for (n in degree_range) {
+  Phi_train <- design_matrix(x_train, n)
+  w <- mle_weights(Phi_train, y_train)
+  y_pred <- Phi_train %*% w
+  plot(x_train, y_train, col = "blue", pch = 16,
+       main = paste("Degree =", n),
+       xlab = "x", ylab = "y")
+  lines(sort(x_train), y_pred[order(x_train)], col = "red", lwd = 2)
+}
+
+# Low-Degree Polynomials: Underfitting leads to poor model performance.
+
+# Medium-Degree Polynomials: Achieve the best balance, 
+# minimizing both training and testing errors.
+
+# High-Degree Polynomials: Overfitting results in 
+# low training error but high testing error.
+
+
+# (c)
+# Calculate RMSE
+rmse <- function(y_true, y_pred) {
+  sqrt(mean((y_true - y_pred)^2))
+}
+
+# Initialize vectors to store RMSE for training and testing
+train_rmse <- numeric(length(degree_range))
+test_rmse <- numeric(length(degree_range))
+
+# Loop through each polynomial degree to compute RMSE
+for (n in degree_range) {
+  # Build design matrices for training and testing data
+  Phi_train <- design_matrix(x_train, n)
+  Phi_test <- design_matrix(x_test, n)
+  
+  # Calculate weights
+  w <- mle_weights(Phi_train, y_train)
+  
+  # Predict values for training and testing data
+  y_pred_train <- Phi_train %*% w
+  y_pred_test <- Phi_test %*% w
+  
+  # Calculate RMSE for training and testing
+  train_rmse[n] <- rmse(y_train, y_pred_train)
+  test_rmse[n] <- rmse(y_test, y_pred_test)
+}
+
+# Plot RMSE
+par(mfrow = c(1, 1))
+plot(degree_range, train_rmse, type = "b", col = "blue", pch = 16, lwd = 2,
+     ylim = c(0, max(train_rmse, test_rmse)), xlab = "Polynomial Degree (n)",
+     ylab = "RMSE", main = "Training and Testing RMSE")
+lines(degree_range, test_rmse, type = "b", col = "red", pch = 16, lwd = 2)
+legend("topright", legend = c("Train RMSE", "Test RMSE"),
+       col = c("blue", "red"), pch = 16, lty = 1, lwd = 2)
+
+# Output RMSE values
+cat("\nTraining RMSE for each degree:\n")
+print(train_rmse)
+cat("\nTesting RMSE for each degree:\n")
+print(test_rmse)
+
+
+
+  
+```

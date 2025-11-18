@@ -1,0 +1,445 @@
+---
+title: "Part II computational exercises"
+author: "Haonan LI"
+date: "2025-04-04"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+Sys.setenv(LANG = "en")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r cars}
+### === Problem 1 ===
+
+# (a) Split data
+# Load the iris dataset
+data(iris)
+
+# Set a random seed for reproducibility
+set.seed(123)
+
+# Randomly select 50 unique indices for the test set (without replacement)
+test_indices <- sample(1:nrow(iris), 50, replace = FALSE)
+
+# Create the test set and training set based on the selected indices
+test_set <- iris[test_indices, ]
+train_set <- iris[-test_indices, ]
+
+# Print the sizes of the training and test sets
+cat("Training set size:", nrow(train_set), "\n")
+cat("Test set size:", nrow(test_set), "\n")
+
+# (Optional) Show the distribution of species in each set
+cat("\nClass distribution in training set:\n")
+print(table(train_set$Species))
+
+cat("\nClass distribution in test set:\n")
+print(table(test_set$Species))
+
+# (b) Standardize
+# Extract only numeric feature columns (first 4 columns)
+test_features <- test_set[, 1:4]
+train_features <- train_set[, 1:4]
+
+# Step 1: Compute mean and standard deviation from the TEST set
+test_means <- apply(test_features, 2, mean)
+test_sds <- apply(test_features, 2, sd)
+
+# Step 2: Standardize the TEST set using its own mean and std
+test_features_scaled <- scale(test_features, center = test_means, scale = test_sds)
+
+# Step 3: Standardize the TRAINING set using the TEST set's mean and std
+train_features_scaled <- scale(train_features, center = test_means, scale = test_sds)
+
+# Optional: Combine scaled features back with species labels
+test_set_scaled <- cbind(as.data.frame(test_features_scaled), Species = test_set$Species)
+train_set_scaled <- cbind(as.data.frame(train_features_scaled), Species = train_set$Species)
+
+# Check results
+head(test_set_scaled)
+head(train_set_scaled)
+
+# (c) Define forward pass functions
+# Define ReLU and Softmax functions
+relu <- function(x) {
+  pmax(0, x)
+}
+
+softmax <- function(x) {
+  exp_x <- exp(x - max(x))  # for numerical stability
+  exp_x / sum(exp_x)
+}
+
+# Neural network forward pass (for one sample)
+nn_forward <- function(x, W1, W2) {
+  # Add bias to input
+  x_bias <- c(1, x)  # input layer with bias term
+  
+  # Hidden layer
+  a1 <- W1 %*% x_bias
+  z1 <- relu(a1)
+  z1_bias <- c(1, z1)  # add bias to hidden layer
+  
+  # Output layer
+  a2 <- W2 %*% z1_bias
+  y <- softmax(a2)
+  
+  return(list(
+    x_bias = x_bias,
+    a1 = a1,
+    z1 = z1,
+    a2 = a2,
+    y = y
+  ))
+}
+
+# Convert species labels to one-hot vectors
+to_one_hot <- function(label_vector) {
+  classes <- unique(label_vector)
+  K <- length(classes)
+  labels_numeric <- as.numeric(factor(label_vector, levels = classes))
+  one_hot <- matrix(0, nrow = length(label_vector), ncol = K)
+  for (i in 1:length(label_vector)) {
+    one_hot[i, labels_numeric[i]] <- 1
+  }
+  return(one_hot)
+}
+
+# Forward pass over the entire dataset and compute cross-entropy loss
+compute_loss <- function(X, y_true, W1, W2) {
+  total_loss <- 0
+  N <- nrow(X)
+  
+  for (i in 1:N) {
+    x_i <- as.numeric(X[i, ])
+    y_i <- as.numeric(y_true[i, ])
+    out <- nn_forward(x_i, W1, W2)
+    y_pred <- out$y
+    
+    # Cross-entropy loss: -sum(t_k * log(y_k))
+    loss_i <- -sum(y_i * log(y_pred + 1e-15))  # add epsilon for numerical stability
+    total_loss <- total_loss + loss_i
+  }
+  
+  return(total_loss)
+}
+
+# Set dimensions and initialize weights
+set.seed(42)
+D <- 4      # input features
+M <- 5      # number of hidden neurons
+K <- 3      # output classes
+
+W1 <- matrix(rnorm(M * (D + 1), mean = 0, sd = 0.1), nrow = M)       # M x (D+1)
+W2 <- matrix(rnorm(K * (M + 1), mean = 0, sd = 0.1), nrow = K)       # K x (M+1)
+
+# Prepare data
+X_train <- train_set_scaled[, 1:4]
+y_train_one_hot <- to_one_hot(train_set_scaled$Species)
+
+# Compute total loss
+loss <- compute_loss(X_train, y_train_one_hot, W1, W2)
+cat("Cross-entropy loss on training set:", loss, "\n")
+
+
+
+### === Problem 2 ===
+# Backpropagation, training loop
+# Derivative of ReLU
+relu_derivative <- function(x) {
+  as.numeric(x > 0)
+}
+
+# Backward propagation
+nn_backward <- function(x, y_true, forward_out, W1, W2) {
+  # Unpack
+  x_bias <- forward_out$x_bias
+  a1 <- forward_out$a1
+  z1 <- forward_out$z1
+  z1_bias <- c(1, z1)
+  y_pred <- forward_out$y
+  
+  # Output layer gradient
+  delta2 <- y_pred - y_true            
+  grad_W2 <- delta2 %*% t(z1_bias)       
+  
+  # Hidden layer gradient
+  dz1 <- relu_derivative(a1)             
+  delta1 <- (t(W2[, -1]) %*% delta2) * dz1  
+  
+  grad_W1 <- delta1 %*% t(x_bias)        
+  
+  return(list(grad_W1 = grad_W1, grad_W2 = grad_W2))
+}
+
+# Training function
+train_nn <- function(X, y, M, K = 3, epochs = 200, lr = 0.01, seed = 42) {
+  set.seed(seed)
+  
+  D <- ncol(X)
+  N <- nrow(X)
+  
+  # Initialize weights
+  W1 <- matrix(rnorm(M * (D + 1), 0, 0.1), nrow = M)    
+  W2 <- matrix(rnorm(K * (M + 1), 0, 0.1), nrow = K)     
+  
+  loss_trace <- numeric(epochs)
+  
+  for (epoch in 1:epochs) {
+    total_loss <- 0
+    
+    # Gradient accumulators
+    total_grad_W1 <- matrix(0, nrow = M, ncol = D + 1)
+    total_grad_W2 <- matrix(0, nrow = K, ncol = M + 1)
+    
+    for (i in 1:N) {
+      x_i <- as.numeric(X[i, ])
+      y_i <- as.numeric(y[i, ])
+      
+      # Forward
+      forward_out <- nn_forward(x_i, W1, W2)
+      y_pred <- forward_out$y
+      
+      # Compute loss
+      loss_i <- -sum(y_i * log(y_pred + 1e-15))
+      total_loss <- total_loss + loss_i
+      
+      # Backward
+      grads <- nn_backward(x_i, y_i, forward_out, W1, W2)
+      
+      # Accumulate gradients
+      total_grad_W1 <- total_grad_W1 + grads$grad_W1
+      total_grad_W2 <- total_grad_W2 + grads$grad_W2
+    }
+    
+    # Average gradients
+    total_grad_W1 <- total_grad_W1 / N
+    total_grad_W2 <- total_grad_W2 / N
+    
+    # Update weights
+    W1 <- W1 - lr * total_grad_W1
+    W2 <- W2 - lr * total_grad_W2
+    
+    # Store average loss
+    loss_trace[epoch] <- total_loss / N
+  }
+  
+  return(list(W1 = W1, W2 = W2, loss_trace = loss_trace))
+}
+
+# training data
+X_train <- train_set_scaled[, 1:4]
+y_train <- to_one_hot(train_set_scaled$Species)
+
+# Train the neural network 
+model <- train_nn(X_train, y_train, M = 5, epochs = 200, lr = 0.01)
+
+# Plot the training loss 
+plot(model$loss_trace, type = 'l', col = 'blue',
+     main = "Training Loss over Epochs",
+     xlab = "Epoch", ylab = "Cross-Entropy Loss")
+
+
+### === Problem 3 ===
+# Predict function using forward pass
+predict_nn <- function(X, W1, W2) {
+  N <- nrow(X)
+  predictions <- matrix(0, nrow = N, ncol = nrow(W2))  # K columns
+  for (i in 1:N) {
+    x_i <- as.numeric(X[i, ])
+    out <- nn_forward(x_i, W1, W2)
+    predictions[i, ] <- out$y
+  }
+  return(predictions)
+}
+
+# Classification error rate
+error_rate <- function(y_pred, y_true) {
+  pred_labels <- max.col(y_pred)
+  true_labels <- max.col(y_true)
+  mean(pred_labels != true_labels)
+}
+
+# Cross-entropy loss
+compute_loss <- function(X, y_true, W1, W2) {
+  total_loss <- 0
+  N <- nrow(X)
+  for (i in 1:N) {
+    x_i <- as.numeric(X[i, ])
+    y_i <- as.numeric(y_true[i, ])
+    out <- nn_forward(x_i, W1, W2)
+    y_pred <- out$y
+    loss_i <- -sum(y_i * log(y_pred + 1e-15))
+    total_loss <- total_loss + loss_i
+  }
+  return(total_loss / N)
+}
+
+# Prepare train/test data
+
+# Load iris and split
+data(iris)
+set.seed(123)
+test_indices <- sample(1:nrow(iris), 50)
+test_set <- iris[test_indices, ]
+train_set <- iris[-test_indices, ]
+
+# Standardize using test set stats
+test_features <- test_set[, 1:4]
+train_features <- train_set[, 1:4]
+test_means <- apply(test_features, 2, mean)
+test_sds <- apply(test_features, 2, sd)
+test_scaled <- scale(test_features, center = test_means, scale = test_sds)
+train_scaled <- scale(train_features, center = test_means, scale = test_sds)
+test_set_scaled <- cbind(as.data.frame(test_scaled), Species = test_set$Species)
+train_set_scaled <- cbind(as.data.frame(train_scaled), Species = train_set$Species)
+
+# One-hot encoding
+to_one_hot <- function(label_vector) {
+  classes <- unique(label_vector)
+  K <- length(classes)
+  labels_numeric <- as.numeric(factor(label_vector, levels = classes))
+  one_hot <- matrix(0, nrow = length(label_vector), ncol = K)
+  for (i in 1:length(label_vector)) {
+    one_hot[i, labels_numeric[i]] <- 1
+  }
+  return(one_hot)
+}
+
+X_train <- train_set_scaled[, 1:4]
+y_train <- to_one_hot(train_set_scaled$Species)
+X_test <- test_set_scaled[, 1:4]
+y_test <- to_one_hot(test_set_scaled$Species)
+
+# Define NN core
+
+relu <- function(x) {
+  pmax(0, x)
+}
+relu_derivative <- function(x) {
+  as.numeric(x > 0)
+}
+softmax <- function(x) {
+  exp_x <- exp(x - max(x))
+  exp_x / sum(exp_x)
+}
+nn_forward <- function(x, W1, W2) {
+  x_bias <- c(1, x)
+  a1 <- W1 %*% x_bias
+  z1 <- relu(a1)
+  z1_bias <- c(1, z1)
+  a2 <- W2 %*% z1_bias
+  y <- softmax(a2)
+  return(list(x_bias = x_bias, a1 = a1, z1 = z1, a2 = a2, y = y))
+}
+nn_backward <- function(x, y_true, forward_out, W1, W2) {
+  x_bias <- forward_out$x_bias
+  a1 <- forward_out$a1
+  z1 <- forward_out$z1
+  z1_bias <- c(1, z1)
+  y_pred <- forward_out$y
+  delta2 <- y_pred - y_true
+  grad_W2 <- delta2 %*% t(z1_bias)
+  dz1 <- relu_derivative(a1)
+  delta1 <- (t(W2[, -1]) %*% delta2) * dz1
+  grad_W1 <- delta1 %*% t(x_bias)
+  return(list(grad_W1 = grad_W1, grad_W2 = grad_W2))
+}
+train_nn <- function(X, y, M, K = 3, epochs = 200, lr = 0.01, seed = 42) {
+  set.seed(seed)
+  D <- ncol(X)
+  N <- nrow(X)
+  W1 <- matrix(rnorm(M * (D + 1), 0, 0.1), nrow = M)
+  W2 <- matrix(rnorm(K * (M + 1), 0, 0.1), nrow = K)
+  loss_trace <- numeric(epochs)
+  for (epoch in 1:epochs) {
+    total_loss <- 0
+    total_grad_W1 <- matrix(0, nrow = M, ncol = D + 1)
+    total_grad_W2 <- matrix(0, nrow = K, ncol = M + 1)
+    for (i in 1:N) {
+      x_i <- as.numeric(X[i, ])
+      y_i <- as.numeric(y[i, ])
+      forward_out <- nn_forward(x_i, W1, W2)
+      y_pred <- forward_out$y
+      loss_i <- -sum(y_i * log(y_pred + 1e-15))
+      total_loss <- total_loss + loss_i
+      grads <- nn_backward(x_i, y_i, forward_out, W1, W2)
+      total_grad_W1 <- total_grad_W1 + grads$grad_W1
+      total_grad_W2 <- total_grad_W2 + grads$grad_W2
+    }
+    W1 <- W1 - lr * (total_grad_W1 / N)
+    W2 <- W2 - lr * (total_grad_W2 / N)
+    loss_trace[epoch] <- total_loss / N
+  }
+  return(list(W1 = W1, W2 = W2, loss_trace = loss_trace))
+}
+
+# Loop through M = 1 to 10 
+
+results <- data.frame(M = integer(),
+                      Train_Loss = numeric(),
+                      Test_Loss = numeric(),
+                      Train_Error = numeric(),
+                      Test_Error = numeric())
+
+for (M in 1:10) {
+  cat("Training with M =", M, "\n")
+  model <- train_nn(X_train, y_train, M = M, epochs = 200, lr = 0.01)
+  y_train_pred <- predict_nn(X_train, model$W1, model$W2)
+  y_test_pred  <- predict_nn(X_test, model$W1, model$W2)
+  train_loss <- compute_loss(X_train, y_train, model$W1, model$W2)
+  test_loss  <- compute_loss(X_test, y_test, model$W1, model$W2)
+  train_err <- error_rate(y_train_pred, y_train)
+  test_err  <- error_rate(y_test_pred, y_test)
+  results <- rbind(results, data.frame(M = M,
+                                       Train_Loss = round(train_loss, 4),
+                                       Test_Loss = round(test_loss, 4),
+                                       Train_Error = round(train_err, 4),
+                                       Test_Error = round(test_err, 4)))
+}
+
+# Output the results
+print(results)
+
+# Load pRoc
+library(pROC)
+
+# Use a trained model (for example M = 5)
+model <- train_nn(X_train, y_train, M = 5, epochs = 200, lr = 0.01)
+
+# Get predictions on test set
+y_test_pred <- predict_nn(X_test, model$W1, model$W2)
+
+# Convert one-hot true labels to class index
+true_labels <- max.col(y_test)  # 1 = setosa, 2 = versicolor, 3 = virginica
+
+# Set up plot
+par(mfrow = c(1, 1))
+colors <- c("red", "blue", "green")
+
+# Loop over each class for one-vs-rest ROC
+for (k in 1:3) {
+  actual_binary <- ifelse(true_labels == k, 1, 0)
+  predicted_scores <- y_test_pred[, k]
+  
+  roc_obj <- roc(actual_binary, predicted_scores)
+  
+  if (k == 1) {
+    plot(roc_obj, col = colors[k], main = "One-vs-Rest ROC Curves", lwd = 2)
+  } else {
+    lines(roc_obj, col = colors[k], lwd = 2)
+  }
+  
+  # Print AUC value in console
+  cat("AUC for class", k, ":", auc(roc_obj), "\n")
+}
+
+# Add legend
+legend("bottomright", legend = c("Setosa", "Versicolor", "Virginica"),
+       col = colors, lwd = 2)
+
+
+```
